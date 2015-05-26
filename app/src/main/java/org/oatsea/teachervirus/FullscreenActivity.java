@@ -58,12 +58,19 @@ public class FullscreenActivity extends Activity{
         }
 
 
+        // ** TO DO ***
+        // 0. Download getinfected.php from github and unzip into /mnt/sdcard/htdocs
+        //  - with option to download from alternative address if unable to access github
+        // 1. Start Webserver (DroidPHP) via INTENT?? (and confirm success)
+        // 2. Test can access it web pages on local host
+        // 3. Provide network IP address of this device so can infect
+
         WebView myWebView = (WebView) findViewById(R.id.webview);
         WebSettings webSettings = myWebView.getSettings();
         webSettings.setJavaScriptEnabled(true);
         myWebView.setWebViewClient(new WebViewClient());
         // myWebView.loadUrl("http://www.google.com");
-        myWebView.loadUrl("http://localhost:8080");
+        myWebView.loadUrl("http://localhost:8080/getinfected.php");
 
         /*
         View decorView = getWindow().getDecorView();
@@ -91,7 +98,7 @@ public class FullscreenActivity extends Activity{
         webSettings.setJavaScriptEnabled(true);
         myWebView.setWebViewClient(new WebViewClient());
         // myWebView.loadUrl("http://www.google.com");
-        myWebView.loadUrl("http://localhost:8080");
+        myWebView.loadUrl("http://localhost:8080/getinfected.php");
 
     }
 }
