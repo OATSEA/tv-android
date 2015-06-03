@@ -28,24 +28,53 @@ import java.net.URLConnection;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
+// Credits:
 // https://gist.github.com/rduplain/2638913
+// https://developer.chrome.com/multidevice/webview/gettingstarted
+
+// ** TO DO ***
+// 0. Download getinfected.php from github and unzip into /mnt/sdcard/htdocs
+//  - with option to download from alternative address if unable to access github
+// 1. Start Webserver (DroidPHP) via INTENT?? (and confirm success)
+// 2. Test can access web pages on local host
+// 3. Provide network IP address of this device so can infect
+
 
 public class FullscreenActivity extends Activity{
+
+    private WebView myWebView;
 
     // Progress Dialog
     private ProgressDialog pDialog;
     public static final int progress_bar_type = 0;
-    private boolean debugFlag = true;
-    private boolean tvInstalled = false;
 
-    // File url to download - github
-    private static String file_url = "https://www.github.com/OATSEA/getinfected/zipball/master";
+    private boolean debugFlag = true;
+
+    private boolean tvInstalled = false;
+    private boolean webserverUP = false;
+
+    private static String file_url = "https://www.github.com/OATSEA/getinfected/zipball/master";  // File url to download - github
+    private static String getinfected_url = "http://localhost:8080/getinfected.php"; // getinfected installer
+    private static String play_url = "http://localhost:8080/play"; // default play location to go to if infected already
+    private static String splash_url = "file:///android_asset/www/splash.html"; // splash page
+    private static String error_url = "file:///android_asset/www/error.html"; // error page
+
+    private static String htdocs = Environment.getExternalStorageDirectory() + File.separator + "htdocs";
+    private static String up = htdocs + File.separator + "play" + File.separator + "up.html";
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_fullscreen);
 
+        // Initialise Webview
+        myWebView = (WebView) findViewById(R.id.webview);
+        WebSettings webSettings = myWebView.getSettings();
+        webSettings.setJavaScriptEnabled(true);
+        myWebView.setWebViewClient(new WebViewClient());
+
+        // Hide Everything but Web Page:
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
 
             // Hide the bottom bar and prevent it from reactivating
@@ -84,163 +113,164 @@ public class FullscreenActivity extends Activity{
                     }
                 }
             });
+        } // END Hide Everything
+
+        openPage(splash_url);
+
+        if (checkCanPlay()) {
+            openPage(play_url);
+        } else {
+            if (getinfected()) {
+                // Do nothing as we now need to wait for all the various steps to complete
+                // getinfected returning true doesn't mean success, just that it hasn't failed yet.
+                // Thus need to leave final action/result to steps in process
+                // hence splash page needs to be showing on main thread
+
+                // ** TO DO ** add option to cancel install along way?
+
+            } else {
+                sayThis("Infection Failed!!!");
+                openPage(error_url);
+            }
+        }
+
+    } // END onCreate
+
+    public boolean checkCanPlay() {
+        // Returns true if TV installed and Webserver Is up
+
+        tvInstalled = isTVInstalled();
+        webserverUP = isWebServerUP();
+
+        if ((tvInstalled)&&(webserverUP)) {
+            return true;
+        } else{
+            return false;
         }
 
 
+    } // END checkCanPlay
+
+    public boolean isTVInstalled() {
+        // Check htdocs/play/up.html exists
+        // if it doesn't then return false (TV not installed)
+
+        File upcheck = new File(up);
+        if (upcheck.isFile()) {
+            if (debugFlag) {Log.i("teachervirus", "up.html exists so TV is installed");}
+            return true;
+        } else {
+            if (debugFlag) {   Log.i("teachervirus", "up.html DOESN'T exists so TV is NOT installed");}
+            return false;
+        } // END isFile check
+
+    } // END isTVInstalled
+
+
+    public boolean isWebServerUP() {
+        // if can access localhost play/up.html then server is up and working (and installed)
+        // call on curl or something - look at getinfected download?
+        return true;
 
 
 
+    } // END isWebServerUP()
 
+    public boolean getinfected() {
+        // return true if infection successful
+        boolean infectedOK = false; // Installation failed by default
 
-        // ** TO DO ***
-        // 0. Download getinfected.php from github and unzip into /mnt/sdcard/htdocs
-        //  - with option to download from alternative address if unable to access github
-        // 1. Start Webserver (DroidPHP) via INTENT?? (and confirm success)
-        // 2. Test can access it web pages on local host
-        // 3. Provide network IP address of this device so can infect
+        // Advise user installing
+        sayThis("Commence Infection!!");
 
-        /*
-        WebView myWebView = (WebView) findViewById(R.id.webview);
-        WebSettings webSettings = myWebView.getSettings();
-        webSettings.setJavaScriptEnabled(true);
-        myWebView.setWebViewClient(new WebViewClient());
-        // myWebView.loadUrl("http://www.google.com");
-        myWebView.loadUrl("http://localhost:8080/getinfected.php");
-        */
+        if (checkHtdocsOK()) {
+            installTV();
+            infectedOK = true;
+        } else {
+            infectedOK = false;
+        }
 
-        /*
-        View decorView = getWindow().getDecorView();
-        int uiOptions = View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                | View.SYSTEM_UI_FLAG_FULLSCREEN;
-        decorView.setSystemUiVisibility(uiOptions);
-        */
-
+        return infectedOK;
     }
 
-    public void testTVInstalled() {
-        // check htdocs exits on sdcard
-        // reference: http://stackoverflow.com/questions/2625419/check-if-directory-exist-on-androids-sdcard
-        // http://developer.android.com/reference/java/io/File.html
 
-        File htdocs = new File(Environment.getExternalStorageDirectory() + File.separator + "htdocs");
-        if (htdocs.isDirectory()) {
+    public boolean checkHtdocsOK() {
+        // Check HTDOCS folder exists or not
+        // handle issue where for some reason DroidPHP creates it as a file sometimes
+        boolean htdocsOK = false; // htdocs not okay by default
+
+        File check_htdocs = new File(htdocs);
+        if (check_htdocs.isDirectory()) {
             if (debugFlag) {
                 Log.i("teachervirus", "htdocs folder exists on SDcard");
             }
-
-            // But does play folder exist?
-            File play = new File(Environment.getExternalStorageDirectory() + "/htdocs/play");
-            if (play.isDirectory()) {
-                if (debugFlag) {
-                    Log.i("teachervirus", "play folder exists on SDcard - assume TV installed");
-                }
-                tvInstalled = true;
-                openWebView();
-            } else {
-                if (debugFlag) {
-                    Log.i("teachervirus", "play DOESN'T exist - need to install TV");
-                    sayInstalling();
-                }
-            }
+            htdocsOK = true;
+            // HTDOCS folder all good
         } else {
-            if (htdocs.isFile()) {
+            if (check_htdocs.isFile()) {
                 if (debugFlag) {
                     Log.i("teachervirus", "htdocs is a file - not a folder so DELETE IT!");
                 }
-                if (htdocs.delete()) {
+                // delete file version of htdocs
+                if (check_htdocs.delete()) {
+                    // deleted successfully
                     if (debugFlag) {
                         Log.i("teachervirus", "htdocs deleted");
                     }
+                    // create new htdocs folder
+                    File htdocs_new = new File(htdocs);
+
+                    // as was able to delete file create new directory:
+                    if (htdocs_new.mkdir()) {
+                        if (debugFlag) {
+                            Log.i("teachervirus", "htdocs created successfully");
+                        }
+                        htdocsOK = true;
+                    } else {
+                        if (debugFlag) {
+                            Log.i("teachervirus", "htdocs NOT created!");
+                        }
+                        sayThis("Unable to create htdocs folder - Install Failed");
+
+                    } // End make new dir
                 } else {
                     if (debugFlag) {
                         Log.i("teachervirus", "htdocs NOT deleted!");
                     }
-                }
-                // deleteFile(Environment.getExternalStorageDirectory() + "/htdocs");
-                File htdocs_new = new File(Environment.getExternalStorageDirectory() + "/htdocs");
-                if (htdocs_new.mkdir()) {
-                    if (debugFlag) {
-                        Log.i("teachervirus", "htdocs created successfully");
-                    }
-                } else {
-                    if (debugFlag) {
-                        Log.i("teachervirus", "htdocs NOT created!");
-                    }
-                }
+                    sayThis("Unable to delete htdocs file - Install Failed");
+
+                } // END delete
 
             } else {
+                // htdocs is not a file and doesn't exist
+                // so create it as a folder
                 if (debugFlag) {
                     Log.i("teachervirus", "htdocs DOESN'T exist - create it");
                 }
-                if (htdocs.mkdir()) {
+                if (check_htdocs.mkdir()) {
                     if (debugFlag) {
                         Log.i("teachervirus", "htdocs created successfully");
                     }
+                    htdocsOK = true;
                 } else {
                     if (debugFlag) {
                         Log.i("teachervirus", "htdocs NOT created!");
                     }
+                    sayThis("Unable to create htdocs folder - Install Failed");
                 } // htdocs mkdir
 
 
             }
+        }   // END check for HTDOCS
 
+        return htdocsOK;
+    } // END checkHtdocsOK
 
-        }
+    public void openPage(String url) {
 
-        // check getinfected.zip exists or not
-        // if getinfected.zip doesn't exist then:
-
-        if (tvInstalled) {
-            if (debugFlag) {
-                Log.i("teachervirus", "Teacher Virus already installed so don't download");
-            }
-        } else {
-            // But has getinfected.php.zip already been downloaded?
-            File getinfected = new File(Environment.getExternalStorageDirectory() + "/htdocs/infect/getinfected.php.zip");
-            if (getinfected.isFile()) {
-                if (debugFlag) {
-                    Log.i("teachervirus", "Teacher Virus already installed so don't download just unzip");
-                }
-
-
-                File getinfectedphp2 = new File(Environment.getExternalStorageDirectory() + "/htdocs/getinfected.php");
-                if (getinfectedphp2.isFile()) {
-                    if (debugFlag) {
-                        Log.i("teachervirus", "getinfected.php already exists so don't unzip");
-                    }
-
-                } else {
-                    if (debugFlag) {
-                        Log.i("teachervirus", "Attempt to unzip");
-                    }
-
-                    new UnzipFile().execute("/htdocs/infect/getinfected.php.zip");
-                    if (debugFlag) {
-                        Log.i("teachervirus", "Returned from unzip to main");
-                    }
-                }
-
-            } else {
-                if (debugFlag) {
-                    Log.i("teachervirus", "getinfected.php.zip doesn't exist so download it . . . ");
-                }
-                new DownloadFileFromURL().execute(file_url);
-                if (debugFlag) {
-                    Log.i("teachervirus", "downloadFile executed and returned to main thread");
-                }
-
-            }
-
-        }
-    }
-    public void openWebView() {
-        WebView myWebView = (WebView) findViewById(R.id.webview);
-        WebSettings webSettings = myWebView.getSettings();
-        webSettings.setJavaScriptEnabled(true);
-        myWebView.setWebViewClient(new WebViewClient());
         // myWebView.loadUrl("http://www.google.com");
-        myWebView.loadUrl("http://localhost:8080/getinfected.php");
+        // "http://localhost:8080/getinfected.php"
+        myWebView.loadUrl(url);
 
     }
 
@@ -248,6 +278,7 @@ public class FullscreenActivity extends Activity{
     public void onResume(){
         super.onResume();
 
+        // Hide Everything:
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
             View rootView = getWindow().getDecorView();
             rootView.setSystemUiVisibility(View.STATUS_BAR_VISIBLE);
@@ -256,28 +287,65 @@ public class FullscreenActivity extends Activity{
             rootView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LOW_PROFILE);
         }
 
-        File getinfectedphptest = new File(Environment.getExternalStorageDirectory() + "/htdocs/getinfected.php");
-        if(getinfectedphptest.isFile()) {
-            if(debugFlag) {Log.i("teachervirus", "Testing getinfected.php exists during resume");}
-            // open the webview that goes to this file:
+        if (checkCanPlay()) {
+            openPage(play_url);
 
-            openWebView();
+            // openPage(error_url);
+            // dismissDialog(progress_bar_type);
         } else {
-            if(debugFlag) {Log.i("teachervirus", "BUT getinfected.php DOESN'T exist!");}
-            testTVInstalled();
-
-
-
-
+            // getinfected();
+            // install possibly in progress already
         }
 
+    } // END onResume
 
-    }
+    public void installTV() {
+
+        // check getinfected.zip exists or not
+        // if getinfected.zip doesn't exist then:
 
 
-    public void sayInstalling() {
+        // But has getinfected.php.zip already been downloaded?
+        File getinfectedzip = new File(htdocs + "/infect/getinfected.php.zip");
+        if (getinfectedzip.isFile()) {
+            // getinfected zip file already exists
+            if (debugFlag) {Log.i("teachervirus", "Teacher Virus already downloaded - just unzip");}
+
+            // check if getinfected.php already exists or not
+            File getinfectedphp = new File(Environment.getExternalStorageDirectory() + "/htdocs/getinfected.php");
+            if (getinfectedphp.isFile()) {
+                // getinfected.php already exists
+                if (debugFlag) {Log.i("teachervirus", "getinfected.php already exists so don't unzip");}
+
+                // which suggests a previous install failed
+                sayThis("Looks like a previous install was tried? Attempting to continue");
+                // as getinfected.php exists start it to do install process
+
+                openPage(getinfected_url);
+
+            } else {
+                    // getinfected.php.zip exists but hasn't been unzipped so unzip it
+                    if (debugFlag) {Log.i("teachervirus", "Attempt to unzip");}
+
+                    // attempt to unzip
+                    new UnzipFile().execute("/htdocs/infect/getinfected.php.zip");
+                    if (debugFlag) {Log.i("teachervirus", "executed unzip");}
+                    // doesn't mean unzip was a success
+            } // END getinfectedphp is file
+
+        } else {
+            // no existing getinfected zip file so download it
+            if (debugFlag) {Log.i("teachervirus", "getinfected.php.zip doesn't exist so download it . . . ");}
+
+            new DownloadFileFromURL().execute(file_url);
+            if (debugFlag) {Log.i("teachervirus", "downloadFile executed");}
+        }
+
+    } // END installTV
+
+    public void sayThis(String messageText) {
         Context context = getApplicationContext();
-        CharSequence text = "Installing Teacher Virus!";
+        CharSequence text = messageText;
         int duration = Toast.LENGTH_SHORT;
 
         Toast toast = Toast.makeText(context, text, duration);
@@ -340,20 +408,14 @@ public class FullscreenActivity extends Activity{
                 // Create folder if doesn't exist:
                 // http://stackoverflow.com/questions/2130932/how-to-create-directory-automatically-on-sd-card
 
-                File infect = new File(Environment
-                        .getExternalStorageDirectory().toString()+
-                        "/htdocs/infect/");
+                File infect = new File(htdocs+ "/infect/");
 
                 // create directories
                 infect.mkdirs();
 
 
                 // Output stream
-                OutputStream output = new FileOutputStream(Environment
-                        .getExternalStorageDirectory().toString()
-                        + "/htdocs/infect/getinfected.php.zip");
-
-
+                OutputStream output = new FileOutputStream(htdocs+ "/infect/getinfected.php.zip");
 
                 byte data[] = new byte[1024];
 
@@ -378,6 +440,10 @@ public class FullscreenActivity extends Activity{
 
             } catch (Exception e) {
                 Log.e("Error: ", e.getMessage());
+                openPage(error_url);
+                sayThis("Download Failed");
+                // ** TO DO **
+                // at this point try to download from alternate location
             }
 
             return null;
@@ -400,27 +466,20 @@ public class FullscreenActivity extends Activity{
             dismissDialog(progress_bar_type);
             if(debugFlag) {Log.i("teachervirus", "Download Complete . . . ");}
 
-            File getinfected = new File(Environment.getExternalStorageDirectory() + "/htdocs/infect/getinfected.php.zip");
-            if(getinfected.isFile()) {
+            File getinfectedcheck = new File(htdocs + "/infect/getinfected.php.zip");
+            if(getinfectedcheck.isFile()) {
                 if(debugFlag) {Log.i("teachervirus", "and getinfected.php.zip exists");}
-
-                // so now unzip and move getinfected.php to htdocs
-                File getinfectedphp = new File(Environment.getExternalStorageDirectory() + "/htdocs/getinfected.php");
-                if(getinfectedphp.isFile()) {
-                    if(debugFlag) {Log.i("teachervirus", "getinfected.php already exists so don't unzip");}
-
-                } else {
-                    if(debugFlag) {Log.i("teachervirus", "Attempt to unzip");}
-                    new UnzipFile().execute("/htdocs/infect/getinfected.php.zip");
-                }
+                new UnzipFile().execute("/htdocs/infect/getinfected.php.zip");
             } else {
                 if(debugFlag) {Log.i("teachervirus", "BUT getinfected.php.zip DOESN'T exist!");}
+                openPage(error_url);
+                sayThis("Unable Downloaded getinfected.php.zip");
             }
 
 
         }
 
-    }
+    } // END DownloadFile
 
     // UNZIP getinfected
 
@@ -447,12 +506,12 @@ public class FullscreenActivity extends Activity{
             try {
                 if(debugFlag) {Log.i("teachervirus", "try to unzip file:" + unzipFileName);}
 
-                String unziploc = Environment.getExternalStorageDirectory() + "/htdocs/infect/getinfected.php.zip";
+                String unziploc = htdocs+"/infect/getinfected.php.zip";
 
 
                 File zipFile = new File(unziploc);
 
-                File targetDirectory = new File(Environment.getExternalStorageDirectory() + "/htdocs/unzip_temp");
+                File targetDirectory = new File(htdocs+"/unzip_temp");
                 // Reference: http://stackoverflow.com/questions/3382996/how-to-unzip-files-programmatically-in-android
                 unzip(zipFile, targetDirectory);
 
@@ -549,8 +608,8 @@ public class FullscreenActivity extends Activity{
 
                 // REFERENCE: http://stackoverflow.com/questions/6997364/android-how-to-get-directory-listing
                 // get a list of all folders in /htdocs/unzip_temp - there should be only one
-                String subfolder = "notset";
-                File f = new File(Environment.getExternalStorageDirectory() + "/htdocs/unzip_temp");
+                String subfolder = htdocs+"/unzip_temp"; // to handle situation where no subfolder
+                File f = new File(htdocs+"/unzip_temp");
                 File[] files = f.listFiles();
                 for (File inFile : files) {
                     if (inFile.isDirectory()) {
@@ -558,22 +617,24 @@ public class FullscreenActivity extends Activity{
                         if(debugFlag) {Log.i("teachervirus", "subfolder set to:" + subfolder);}
 
                     }
-                }
+                } // End For
 
                 // REFERENCE: http://stackoverflow.com/questions/9065514/move-rename-file-in-sd-card
 
                 // Copy file:
                 File original = new File(subfolder+"/getinfected.php");
-                File destination = new File(Environment.getExternalStorageDirectory() + "/htdocs/getinfected.php");
+                File destination = new File(htdocs+"/getinfected.php");
 
+                // sayThis("Attempting to Move Files into Place");
                 if(debugFlag) {Log.i("teachervirus", "Attempt to copy" + original.toString() + " to " + destination.toString());}
+
                 copy(original,destination);
 
 
                 // delete unzip_temp folder
                 // REFERENCE: http://stackoverflow.com/questions/5701586/delete-a-folder-on-sd-card
 
-                File unzip_temp = new File(Environment.getExternalStorageDirectory() + "/htdocs/unzip_temp");
+                File unzip_temp = new File(htdocs + "/unzip_temp");
 
                 if(debugFlag) {Log.i("teachervirus", "delete directory" + unzip_temp.toString());}
                 deleteDirectory(unzip_temp);
@@ -595,14 +656,16 @@ public class FullscreenActivity extends Activity{
 
             if(debugFlag) {Log.i("teachervirus", "Move Complete . . . ");}
 
-            File getinfectedphptest = new File(Environment.getExternalStorageDirectory() + "/htdocs/getinfected.php");
+            File getinfectedphptest = new File(htdocs+"/getinfected.php");
             if(getinfectedphptest.isFile()) {
                 if(debugFlag) {Log.i("teachervirus", "and getinfected.php exists ");}
                 // open the webview that goes to this file:
 
-                openWebView();
+                openPage(getinfected_url);
             } else {
                 if(debugFlag) {Log.i("teachervirus", "BUT getinfected.php DOESN'T exist!");}
+                openPage(error_url);
+                sayThis("File Move Failed!");
             }
 
         }
@@ -645,8 +708,16 @@ public class FullscreenActivity extends Activity{
         return( path.delete() );
     }
 
+    // Make the back button go "back" in browser rather than back to launcher
+    @Override
+    public void onBackPressed() {
 
-
+        if(myWebView.canGoBack()) {
+                myWebView.goBack();
+        } else {
+                super.onBackPressed();
+        }
+    } // END onBackPressed
 
 } // END CLASS FullScreenActivity
 
